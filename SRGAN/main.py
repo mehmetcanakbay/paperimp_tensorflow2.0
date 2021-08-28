@@ -5,7 +5,7 @@ from dataprep import *
 import tensorflow as tf
 import time 
 #I fixed the artifacts by using tanh activation at the end of the generator.
-#Why did I not use any activations at the end all this time? I'm a dumbass.
+
 physical_devices = tf.config.list_physical_devices('GPU') 
 tf.config.experimental.set_memory_growth(physical_devices[0], True)
 
