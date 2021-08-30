@@ -11,3 +11,5 @@ Style Transfer: https://arxiv.org/pdf/1508.06576.pdf
 Style Transfer Johnsons: https://arxiv.org/pdf/1603.08155.pdf
 
 WGAN-GP: https://arxiv.org/pdf/1704.00028.pdf
+
+Pix2Pix: https://arxiv.org/pdf/1611.07004.pdf
