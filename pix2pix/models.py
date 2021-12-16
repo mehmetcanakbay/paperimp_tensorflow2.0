@@ -1,120 +1,100 @@
 import tensorflow as tf
-from tensorflow.keras import initializers, layers
+import tensorflow.keras as keras
+from tensorflow.keras import layers
 
-#Reason for this is because I also want to try out
-#SSIM as a loss function. SSIM doesnt accept negative values
-def custom_act(x):
-    return tf.nn.tanh(x) + 1
-
-#Gaussian distribution with mean 0 and std of 0.02
-def initial(shape, dtype=None):
-    init = tf.keras.initializers.RandomNormal(mean=0, stddev=0.02)
-    return init(shape=shape)
-
-class ConvBlockDown(tf.keras.layers.Layer):
-    def __init__(self, channels=64, batch_norm=True):
+class ReflectiveConv2D(layers.Layer):
+    def __init__(self, filters=64, kernel_size=3, strides=1, padding=1, kernel_initialization='glorot_uniform'):
         super().__init__()
-        self.batch_norm = batch_norm
-        self.conv = layers.Conv2D(channels, 4, strides=2, padding='same', kernel_initializer=initial)
-        if batch_norm:
-            self.bn = layers.BatchNormalization()
-
+        self.padding = padding
+        self.conv2d = layers.Conv2D(filters, 
+                      kernel_size, strides, 
+                      padding='valid', kernel_initializer=kernel_initialization)
     def call(self, x):
-        out = self.conv(x)
-        if self.batch_norm:
-            out = self.bn(out)
+        out = self.conv2d(x)
+        out = tf.pad(out, [[0,0], [self.padding, self.padding], 
+                            [self.padding, self.padding], [0,0]], mode='REFLECT')
         return out
 
-class ConvBlockUp(tf.keras.layers.Layer):
-    def __init__(self, channels=64, batch_norm=True, dropout=False):
+class Conv2D_ReLU_Downsample(keras.layers.Layer):
+    def __init__(self, filters, relu=True):
         super().__init__()
-        self.batch_norm = batch_norm
-        self.dropout = dropout
-        self.conv = layers.Conv2DTranspose(channels, 4, strides=2, padding='same', kernel_initializer=initial)
-        if batch_norm:
-            self.bn = layers.BatchNormalization()
-        if dropout:
-            self.dropout = layers.Dropout(0.5)
-
+        self.conv1 = ReflectiveConv2D(filters, strides=1, padding=1)
+        self.ds = layers.MaxPooling2D((2,2))
+        self.relu = relu
     def call(self, x):
-        out = self.conv(x)
-        if self.batch_norm:
-            out = self.bn(out)
-        if self.dropout:
-            out = self.dropout(out)
-        return out
+        if self.relu:
+            return tf.nn.relu(self.ds(self.conv1(x)))
+        else:
+            return tf.nn.leaky_relu(self.ds(self.conv1(x)))
 
-class Generator(tf.keras.models.Model):
+class Conv2D_ReLU_Upsample(keras.layers.Layer):
+    def __init__(self, filters):
+        super().__init__()
+        self.conv1 = ReflectiveConv2D(filters, strides=1, padding=1)
+        self.us = layers.UpSampling2D((2,2))
+    def call(self, x):
+        return tf.nn.relu(self.us(self.conv1(x)))
 
+class Discriminator(keras.models.Model):
     def __init__(self):
         super().__init__()
-        self.conv1 = ConvBlockDown(64, batch_norm=False) # 64
-        self.conv2 = ConvBlockDown(128) # 32
-        self.conv3 = ConvBlockDown(256) # 16
-        self.conv4 = ConvBlockDown(512) # 8
-        self.conv5 = ConvBlockDown(512) # 4
-        self.conv6 = ConvBlockDown(512) # 2
-        self.bottleneck = ConvBlockDown(512) # 1
-        self.deconv1 = ConvBlockUp(512, dropout=True) # 2
-        self.deconv2 = ConvBlockUp(512, dropout=True) # 4
-        self.deconv3 = ConvBlockUp(512, dropout=True) # 8
-        self.deconv4 = ConvBlockUp(256) # 16
-        self.deconv5 = ConvBlockUp(128) # 32
-        self.deconv6 = ConvBlockUp(64) # 64
-        self.outputconv = layers.Conv2DTranspose(3, 4, 2, padding='same', kernel_initializer=initial)
-
+        self.conv1 = Conv2D_ReLU_Downsample(64, relu=False)        
+        self.conv2 = Conv2D_ReLU_Downsample(128, relu=False)        
+        self.conv3 = Conv2D_ReLU_Downsample(256, relu=False)        
+        self.conv4 = Conv2D_ReLU_Downsample(512, relu=False)        
+        # self.conv5 = Conv2D_ReLU_Downsample(512)      
+        self.fc1 = layers.Dense(1, activation='sigmoid')
+        self.flat = layers.Flatten()
+        
     def call(self, x):
-        res1 = tf.nn.leaky_relu(self.conv1(x))
-        res2 = tf.nn.leaky_relu(self.conv2(res1))
-        res3 = tf.nn.leaky_relu(self.conv3(res2))
-        res4 = tf.nn.leaky_relu(self.conv4(res3))
-        res5 = tf.nn.leaky_relu(self.conv5(res4))
-        res6 = tf.nn.leaky_relu(self.conv6(res5))
-        bn = self.bottleneck(res6)
-        out = tf.nn.relu(self.deconv1(bn))
-        out = tf.concat([out, res6], axis=-1)
-        out = tf.nn.relu(self.deconv2(out))
-        out = tf.concat([out, res5], axis=-1)
-        out = tf.nn.relu(self.deconv3(out))
-        out = tf.concat([out, res4], axis=-1)
-        out = tf.nn.relu(self.deconv4(out))
-        out = tf.concat([out, res3], axis=-1)
-        out = tf.nn.relu(self.deconv5(out))
-        out = tf.concat([out, res2], axis=-1)
-        out = tf.nn.relu(self.deconv6(out))
-        out = tf.concat([out, res1], axis=-1)
-        out = self.outputconv(out)
-        return custom_act(out)
-
-class DiscConvBlock(tf.keras.layers.Layer):
-    def __init__(self, channels=64, batch_norm=True):
-        super().__init__()
-        self.batch_norm = batch_norm
-        self.conv = layers.Conv2D(channels, 4, strides=2, padding='same', kernel_initializer=initial)
-        if batch_norm:
-            self.bn = layers.BatchNormalization()
-    def call(self, x):
-        out = self.conv(x)
-        if self.batch_norm:
-            out = self.bn(out)
+        out = tf.nn.dropout(self.conv1(x), 0.4)
+        out = tf.nn.dropout(self.conv2(out), 0.4)
+        out = tf.nn.dropout(self.conv3(out), 0.4)
+        out = tf.nn.dropout(self.conv4(out), 0.4)
+        # out = self.conv5(out)
+        out = tf.nn.dropout(self.flat(out), 0.4)
+        out = self.fc1(out)
         return out
 
-class Discriminator(tf.keras.models.Model):
+
+class Generator(keras.models.Model):
     def __init__(self):
         super().__init__()
-        self.block1 = DiscConvBlock(64, batch_norm=False)
-        self.block2 = DiscConvBlock(128) #32
-        self.block3 = DiscConvBlock(128) # 16
-        self.block4 = DiscConvBlock(256) # 8
-        self.flatten = layers.Flatten()
-        self.outlayer = layers.Dense(1, activation='sigmoid')
+        #224
+        self.conv1 = Conv2D_ReLU_Downsample(64) #112 
+        self.conv2 = Conv2D_ReLU_Downsample(128) # 56 
+        self.conv3 = Conv2D_ReLU_Downsample(256) # 28 
+        self.conv4 = Conv2D_ReLU_Downsample(512) #14 
+        self.conv5 = Conv2D_ReLU_Downsample(512) # 7
 
+        self.bnconv = ReflectiveConv2D(64, 3, strides=1, padding=1)
+
+        self.deconv1 = Conv2D_ReLU_Upsample(512) # 14
+        self.deconv2 = Conv2D_ReLU_Upsample(512) # 28
+        self.deconv3 = Conv2D_ReLU_Upsample(256) # 56
+        self.deconv4 = Conv2D_ReLU_Upsample(128) # 112
+        self.deconv5 = Conv2D_ReLU_Upsample(64) # 224
+
+        self.out = ReflectiveConv2D(3, 1, 1, padding=0)
     
     def call(self, x):
-        out = tf.nn.leaky_relu(self.block1(x))
-        out = tf.nn.leaky_relu(self.block2(out))
-        out = tf.nn.leaky_relu(self.block3(out))
-        out = tf.nn.leaky_relu(self.block4(out))
-        out = self.flatten(out)
-        out = self.outlayer(out)
-        return out
+        out1 = self.conv1(x) #64
+        out2 = self.conv2(out1) # 128
+        out3 = self.conv3(out2) # 256
+        out4 = self.conv4(out3) # 512
+        out5 = self.conv5(out4) # 512
+
+        out = self.bnconv(out5)
+
+        out = tf.concat([out, out5], axis=-1) # 
+        out = self.deconv1(out)
+        out = tf.concat([out, out4],axis=-1)
+        out = self.deconv2(out)
+        out = tf.concat([out, out3], axis=-1)
+        out = self.deconv3(out)
+        out = tf.concat([out, out2], axis=-1)
+        out = self.deconv4(out)
+        out = tf.concat([out, out1], axis=-1)
+        out = self.deconv5(out)
+
+        return self.out(out)
