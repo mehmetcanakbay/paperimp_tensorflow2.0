@@ -53,10 +53,6 @@ def train_step(img):
     gen_opt.apply_gradients(zip(grads, gen.trainable_weights))
     return complete_gen_loss, complete_disc_loss
 
-#DISC LOSS IS WAY TOO LOW
-#THEREFORE THE LOSS IS BROKEN
-#MODE COLLAPSE?
-#TODO: FIX THIS
 for _ in range(10):
     loss_array_gen = []
     loss_array_disc = []
