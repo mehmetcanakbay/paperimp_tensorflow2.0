@@ -29,8 +29,8 @@ def discriminator_loss(img, fake=False):
                 loss_real = loss_fn(tf.zeros_like(real_img_out), real_img_out)
                 loss_fake = loss_fn(tf.ones_like(fake_img_out), fake_img_out)
             else: 
-                loss_real = loss_fn(tf.zeros_like(real_img_out), real_img_out)
-                loss_fake = loss_fn(tf.ones_like(fake_img_out), fake_img_out)
+                loss_real = loss_fn(tf.ones_like(real_img_out), real_img_out)
+                loss_fake = loss_fn(tf.zeros_like(fake_img_out), fake_img_out)
             losses.append((loss_real+loss_fake) / 2)
     complete_loss = tf.reduce_mean(losses)
     return complete_loss
